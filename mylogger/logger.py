@@ -1,7 +1,6 @@
 import os
 import csv
 import json
-import shutil
 from datetime import datetime, timedelta
 from typing import Optional, Iterator, Dict
 
@@ -133,3 +132,6 @@ class Logger:
                             }
                 except Exception:
                     continue
+
+    def log_event(self, level: str, message: str) -> None:
+        print(f"[{level}] {message}")
