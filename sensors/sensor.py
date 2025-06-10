@@ -14,12 +14,22 @@ class Sensor:
         self.frequency = frequency
         self.active = True
         self.last_value = None
+        self._callbacks = []
+
+    def register_callback(self, callback):
+        self._callbacks.append(callback)
+
+    def notify_callbacks(self, value):
+        from datetime import datetime
+        for cb in self._callbacks:
+            cb(sensor_id=self.sensor_id, timestamp=datetime.now(), value=value, unit=self.unit)
 
     def read_value(self):
         if not self.active:
             raise Exception(f"Czujnik {self.name} jest wyłączony.")
         value = random.uniform(self.min_value, self.max_value)
         self.last_value = value
+        self.notify_callbacks(value)
         return value
 
     def calibrate(self, calibration_factor):
@@ -54,8 +64,8 @@ class TemperatureSensor(Sensor):
         value = base_temp + noise
         value = max(self.min_value, min(self.max_value, value))
         self.last_value = value
+        self.notify_callbacks(value)
         return value
-
 
 class HumiditySensor(Sensor):
     def __init__(self, sensor_id, frequency=1):
@@ -66,8 +76,8 @@ class HumiditySensor(Sensor):
         value = 60 + drift
         value = max(self.min_value, min(self.max_value, value))
         self.last_value = value
+        self.notify_callbacks(value)
         return value
-
 
 class PressureSensor(Sensor):
     def __init__(self, sensor_id, frequency=1):
@@ -77,8 +87,8 @@ class PressureSensor(Sensor):
         value = np.random.normal(1013, 5)
         value = max(self.min_value, min(self.max_value, value))
         self.last_value = value
+        self.notify_callbacks(value)
         return value
-
 
 class AirQualitySensor(Sensor):
     def __init__(self, sensor_id, frequency=1):
@@ -91,4 +101,5 @@ class AirQualitySensor(Sensor):
             base_value += spike
         value = max(self.min_value, min(self.max_value, base_value))
         self.last_value = value
+        self.notify_callbacks(value)
         return value
