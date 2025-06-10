@@ -4,42 +4,69 @@ import json
 import sys
 from network.config import load_server_config
 
-class NetworkServer:
-    def __init__(self, port: int):
-        self.port = port
 
-    def start(self) -> None:
+class NetworkServer:
+    def __init__(self, port: int, callback=None, err_callback=None):
+        self.port = port
+        self.callback = callback
+        self.err_callback = err_callback
+        self._server_socket = None
+        self._running = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            print("Server already running.")
+            return
+
+        self._running.set()
+        self._thread = threading.Thread(target=self._run_server, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._running.clear()
+        if self._server_socket:
+            try:
+                self._server_socket.close()
+            except Exception as e:
+                print(f"[ERROR] Closing socket: {e}", file=sys.stderr)
+
+    def _run_server(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            self._server_socket = s
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(('0.0.0.0', self.port))
             s.listen()
-            print(f"Port: {self.port}")
-            while True:
-                client_socket, addr = s.accept()
-                threading.Thread(target=self._handle_client, args=(client_socket, addr)).start()
+            print(f"[INFO] Server listening on port {self.port}")
 
-    def _handle_client(self, client_socket, addr) -> None:
+            while self._running.is_set():
+                try:
+                    s.settimeout(1.0)
+                    client_socket, addr = s.accept()
+                    threading.Thread(target=self._handle_client, args=(client_socket, addr), daemon=True).start()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+
+    def _handle_client(self, client_socket, addr):
         with client_socket:
             try:
-                raw = b""
-                while True:
+                buffer = b""
+                while self._running.is_set():
                     chunk = client_socket.recv(1024)
                     if not chunk:
                         break
-                    raw += chunk
-                    if b'\n' in chunk:
-                        break
-
-                data = json.loads(raw.decode().strip())
-                print(f"\nReceived from {addr}:")
-                for k, v in data.items():
-                    print(f"  {k}: {v}")
-                client_socket.sendall(b"ACK\n")
+                    buffer += chunk
+                    while b'\n' in buffer:
+                        line, buffer = buffer.split(b'\n', 1)
+                        data = json.loads(line.decode().strip())
+                        print(f"\nReceived from {addr}: {data}")
+                        if self.callback:
+                            self.callback(data)
+                        client_socket.sendall(b"ACK\n")
             except Exception as e:
-                print(f"[ERROR] {e}", file=sys.stderr)
-
-
-if __name__ == "__main__":
-    config = load_server_config("config.yaml")
-    server = NetworkServer(config["port"])
-    print(f"Starting server on port {config['port']}...")
-    server.start()
+                if self.err_callback:
+                    self.err_callback(str(e))
+                else:
+                    print(f"[ERROR] {e}", file=sys.stderr)
